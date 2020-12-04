@@ -1,0 +1,171 @@
+#include <SoftwareSerial.h> 
+#include <MFRC522.h>
+#include <SPI.h>
+#include <MPU6050_tockn.h>
+#include <Wire.h>
+#include <TinyGPS.h>
+#include "BluetoothSerial.h"
+
+#define led 2
+
+
+//INICIALIZACION
+//GSM
+SoftwareSerial IOTGA6(2, 3);
+//ACEL
+ MPU6050 mpu6050(Wire);
+//GPS
+ TinyGPS gps;
+//NFC
+ MFRC522::MIFARE_Key key;
+ MFRC522::StatusCode status;
+ MFRC522 mfrc522(5, 21);
+//REGISTRO DE USUSARIOS MAX 5 (User1 ID:0x1A, 0xB1, 0xA8, 0x48 TIPO:llavero ; User2 ID:0x01, 0x02, 0x03, 0x04 TIPO:celular)
+ byte tarjeta[5][4] = {{0x1A, 0xB1, 0xA8, 0x48},{0x01, 0x02, 0x03, 0x04},{0x00, 0x00, 0x00, 0x00},{0x00, 0x00, 0x00, 0x00},{0x00, 0x00, 0x00, 0x00}}; 
+//BLUETOOTH
+ BluetoothSerial SerialBT;
+
+//ENVIAR SMS
+ String enviarsms(String texto){
+  Serial.println("Enviado sms...");
+  IOTGA6.print("AT+CMGF=1\r"); 
+  delay(100);
+  IOTGA6.print("AT+CMGS=\"+593987695513\"\r");
+  delay(200);
+  IOTGA6.print(texto); IOTGA6.print("\r");
+  Serial.println(texto);
+  delay(500);
+  IOTGA6.print((char)26);
+  delay(100);
+  IOTGA6.println();
+  Serial.println("SMS Enviado.");
+  delay(500);
+  
+ }
+ 
+//LEER ACELEROMETRO
+ bool leeracel(){
+    int aax,aay,gz,gx,gy;
+    mpu6050.update();
+    aax=mpu6050.getAccAngleX();
+    aay=mpu6050.getAccAngleY();
+    gx=mpu6050.getGyroX();
+    gy=mpu6050.getGyroY();
+    gz=mpu6050.getGyroZ();
+    if(gx>10 || gx<-10 || gy>10 || gy<-10 ||gz>10 || gz<-10 ||aax>50 || gz<-50 ||aay>50 || gz<-50 )return true;
+    return false;
+ }
+    
+ //LEER GPS
+  float leergps(){
+    float lat,lon;
+    gps.f_get_position(&lat, &lon);
+    lat == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : lat;
+    lon == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : lon;
+    return lat,lon;
+  }
+  
+ //LEER NFC
+  bool leernfc(){
+    if (mfrc522.PICC_IsNewCardPresent()){
+     if (mfrc522.PICC_ReadCardSerial()){
+      if (comparar_tarjeta(mfrc522.uid.uidByte))
+        return true;
+      else
+        return false;
+      mfrc522.PICC_HaltA();
+      }}
+  }
+  
+ //LEER BLUETOOTH
+  int leerblue(){
+    int bread;
+    if(SerialBT.available())bread=SerialBT.read();
+    return bread;
+  }
+
+
+//VALIDACION DE TARJETA
+bool comparar_tarjeta(byte* arrayA){
+  for (int tarj; tarj<5; tarj++){
+   for (int index=0; index < 4; index++){
+    if (arrayA[index] != tarjeta[tarj][index])return false;
+   }
+  return true;
+  }
+ }
+ 
+//LEER SENSORES I/O
+bool sensor(){
+if(digitalRead(15)==true)return true;
+if(digitalRead(2)==true)return true;
+return false;
+}
+
+//PANICO(SIRENA)
+bool panico(){
+  int s;
+  IOTGA6.println("ATD+59398765513;"); delay(100);IOTGA6.println();
+  for(;;){
+  int bread=leerblue();if(bread==123)break;
+  bool rnfc=leernfc();if (rnfc==true)break;
+  digitalWrite(led,LOW);delay(500);
+  digitalWrite(led,HIGH);delay(500);
+  //enviar sms con ubicacion cada 10 min
+  s++;
+  if(s>600)
+   s=0;
+   float lat,lon=leergps();
+   String mensaje="Ubicacion:";
+   enviarsms(mensaje); 
+  }
+  
+  return false;
+}
+
+//CONFIGURACION INICIAL
+void setup()
+{
+//GSM
+ IOTGA6.begin(9600);
+//ACEL
+ Wire.begin(22,4);
+ mpu6050.begin();
+ mpu6050.calcGyroOffsets(true);
+//GPS
+ Serial2.begin(9600); 
+//NFC
+ SPI.begin();
+ mfrc522.PCD_Init();
+//BLUETOOTH
+ Serial.begin(115200);
+ SerialBT.begin("Alarma"); 
+//MICRO
+ Serial.begin(115200);
+ pinMode(2,INPUT);
+ pinMode(15,INPUT);
+ Serial.print("ALARMA GRUPO 6");
+}
+
+//FUNCION PRINCIPAL
+void loop(){
+  bool a;int r,c,bread;
+  while (a=true){ 
+    Serial.print("ALARMA ACTIVADA\n");
+    if(leeracel())a=panico();
+    if(sensor())a=panico();
+    if(leernfc())a=false;
+    bread=leerblue();
+    Serial.println(bread);
+    if(bread==456)bread=0;a=false;
+ 
+    delay(500);
+    }
+  Serial.print("ALARMA DESACTIVADA\n");
+  bread=leerblue();if(bread==456)delay(2000);bread=0;a=true;
+  c++;if(c>60)c=0;a=true;
+  delay(500);
+  }
+
+
+ 
